@@ -1,0 +1,2 @@
+Embedding Similarity Models - https://playground.roboflow.com/models/task/image-similarity
+IsoCLIP - https://arxiv.org/pdf/2603.19862 || DINOv2 with object segmentation - https://arxiv.org/pdf/2601.07333
