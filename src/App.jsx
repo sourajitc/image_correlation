@@ -171,12 +171,32 @@ function useSquareFit() {
   return [setNode, size];
 }
 
+// True when the viewport is at least the `cols` breakpoint (900px) wide.
+function useIsWide() {
+  const query = "(min-width: 900px)";
+  const [wide, setWide] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setWide(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  return wide;
+}
+
+// `size` is only set on wide screens (measured by useSquareFit). On narrow
+// screens it is undefined and the frame sizes itself by width instead.
 function Placeholder({ id, name, variant, size, src }) {
+  const sizeClass = size ? "" : "aspect-square w-full max-w-[420px]";
+  const sizeStyle = size ? { width: size, height: size } : undefined;
+
   if (src) {
     return (
       <div
-        className="overflow-hidden rounded-sm border border-hairline"
-        style={{ width: size, height: size }}
+        className={`overflow-hidden rounded-sm border border-hairline ${sizeClass}`}
+        style={sizeStyle}
       >
         <img src={src} alt={name} className="h-full w-full object-cover" />
       </div>
@@ -188,8 +208,8 @@ function Placeholder({ id, name, variant, size, src }) {
 
   return (
     <div
-      className="flex items-center justify-center overflow-hidden rounded-sm border border-hairline"
-      style={{ backgroundColor: fill, width: size, height: size }}
+      className={`flex items-center justify-center overflow-hidden rounded-sm border border-hairline ${sizeClass}`}
+      style={{ backgroundColor: fill, ...sizeStyle }}
     >
       {variant === "seller" ? (
         <div
@@ -211,7 +231,7 @@ function Placeholder({ id, name, variant, size, src }) {
 
 function ScoreCell({ label, value, threshold }) {
   return (
-    <div className="flex-1 rounded-sm border border-hairline bg-panel px-3 py-2">
+    <div className="min-w-[140px] flex-1 rounded-sm border border-hairline bg-panel px-3 py-2">
       <p className="text-xs text-mid">{label}</p>
       <p className="mt-0.5 font-mono text-base text-ink">{value.toFixed(2)}</p>
       <p className="mt-0.5 text-xs text-mid">cut-off {threshold}</p>
@@ -289,19 +309,27 @@ function CascadeTrace({ pair, result }) {
 
 function ResultsPanel({ pair, result }) {
   const verdict = VERDICTS[result.key];
+  const panelRef = useRef(null);
+
+  // On narrow screens the results sit below two stacked images, off-screen.
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 900px)").matches) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    panelRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  }, []);
   // Only render cells the cascade actually reached — a gate that stopped
   // the check short means the metrics after it were never computed.
   const reachedPlanarityArtifact = result.gate >= 2;
   const reachedMatch = result.gate >= 3;
 
   return (
-    <div className="mt-4 shrink-0 animate-fade-in motion-reduce:animate-none space-y-3">
+    <div ref={panelRef} className="mt-4 shrink-0 scroll-mt-3 animate-fade-in motion-reduce:animate-none space-y-3">
       <div className={`rounded-sm border-l-4 bg-panel px-3 py-2 ${verdict.borderClass}`}>
         <p className={`text-base font-medium ${verdict.colorClass}`}>{result.message}</p>
       </div>
 
       {(reachedPlanarityArtifact || reachedMatch) && (
-        <div className="flex flex-col gap-2 cols:flex-row">
+        <div className="flex flex-wrap gap-2">
           {reachedPlanarityArtifact && (
             <>
               <ScoreCell label="Planarity" value={pair.planarity} threshold={T.planarity} />
@@ -343,7 +371,7 @@ function ReportModal({ open, onClose, triggerRef }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/50 p-6"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/50 p-3 sm:p-6"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -354,13 +382,13 @@ function ReportModal({ open, onClose, triggerRef }) {
         role="dialog"
         aria-modal="true"
         aria-label="Technical report"
-        className="my-8 w-full max-w-[760px] rounded-sm bg-panel p-6 shadow-xl outline-none"
+        className="my-3 w-full max-w-[760px] rounded-sm bg-panel p-4 shadow-xl outline-none sm:my-8 sm:p-6"
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-ink">Seller photo verification: technical report</h2>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className="text-lg font-semibold text-ink sm:text-xl">Seller photo verification: technical report</h2>
           <button
             onClick={onClose}
-            className="rounded-sm border border-hairline px-3 py-1 text-sm text-mid hover:bg-surface"
+            className="shrink-0 rounded-sm border border-hairline px-3 py-1 text-sm text-mid hover:bg-surface"
           >
             Close
           </button>
@@ -382,7 +410,10 @@ export default function App() {
   const [reportOpen, setReportOpen] = useState(false);
 
   const reportTriggerRef = useRef(null);
-  const [imageWrapRef, squareSize] = useSquareFit();
+  const [imageWrapRef, measuredSize] = useSquareFit();
+  const isWide = useIsWide();
+  // Narrow screens: undefined, so images size by width (see Placeholder).
+  const squareSize = isWide ? measuredSize : undefined;
 
   const selected = PAIRS.find((p) => p.id === selectedId) ?? null;
   const result = selected && hasRun ? evaluate(selected) : null;
@@ -402,7 +433,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen flex-col cols:flex-row bg-surface text-ink font-sans">
+    <div className="flex min-h-dvh flex-col cols:h-screen cols:flex-row bg-surface text-ink font-sans">
       {/* Sidebar (collapses to a dropdown below 900px) */}
       <aside className="flex w-full flex-col border-b border-hairline cols:h-full cols:w-[300px] cols:border-b-0 cols:border-r">
         <div className="flex items-center justify-between bg-header px-4 py-2 text-white cols:h-12">
@@ -415,7 +446,7 @@ export default function App() {
         {/* Dropdown, small screens only */}
         <div className="p-3 cols:hidden">
           <select
-            className="w-full rounded-sm border border-hairline bg-panel px-3 py-2 text-sm text-ink"
+            className="w-full rounded-sm border border-hairline bg-panel px-3 py-2 text-base text-ink"
             value={selectedId ?? ""}
             onChange={(e) => handleSelect(e.target.value)}
           >
@@ -453,9 +484,9 @@ export default function App() {
       </aside>
 
       {/* Main pane */}
-      <main className="flex h-full flex-1 flex-col overflow-y-auto">
-        <div className="flex shrink-0 items-center justify-between bg-header px-6 py-2 text-white cols:h-12">
-          <h1 className="text-lg font-semibold sm:text-2xl">Product Validation using Image Correlation</h1>
+      <main className="flex flex-1 flex-col cols:h-full cols:overflow-y-auto">
+        <div className="flex shrink-0 flex-col items-start gap-2 bg-header px-4 py-3 text-white sm:flex-row sm:items-center sm:justify-between sm:px-6 cols:h-12 cols:py-2">
+          <h1 className="text-base font-semibold sm:text-xl cols:text-2xl">Product Validation using Image Correlation</h1>
           <button
             ref={reportTriggerRef}
             onClick={() => setReportOpen(true)}
@@ -465,27 +496,27 @@ export default function App() {
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col p-4">
+        <div className="flex flex-1 flex-col p-4 cols:min-h-0">
           {!selected ? (
-            <div className="flex h-full items-center justify-center text-sm text-mid">
+            <div className="flex flex-1 items-center justify-center py-16 text-center text-sm text-mid">
               Select a Product from the Sidebar
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-1 flex-col cols:min-h-0">
               <div className="mb-3 flex shrink-0 justify-center">
                 <button
                   onClick={handleRun}
                   disabled={checking}
-                  className="rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-header disabled:opacity-60"
+                  className="w-full rounded-sm bg-accent px-3 py-2 text-sm font-semibold text-header disabled:opacity-60 sm:w-auto sm:py-1.5"
                 >
                   {checking ? "Checking..." : "Run Correlation Check"}
                 </button>
               </div>
 
-              <div className="flex min-h-0 flex-1 flex-col gap-6 cols:flex-row">
-                <div className="flex min-h-0 flex-1 flex-col items-center">
+              <div className="flex flex-col gap-6 cols:min-h-0 cols:flex-1 cols:flex-row">
+                <div className="flex flex-col items-center cols:min-h-0 cols:flex-1">
                   <p className="mb-1 shrink-0 rounded-sm bg-header px-3 py-1 text-base font-bold text-white">Display Picture</p>
-                  <div ref={imageWrapRef} className="flex min-h-0 w-full flex-1 items-center justify-center">
+                  <div ref={imageWrapRef} className="flex w-full items-center justify-center cols:min-h-0 cols:flex-1">
                     <Placeholder
                       id={selected.id}
                       name={selected.name}
@@ -496,9 +527,9 @@ export default function App() {
                   </div>
                   <p className="mt-1 shrink-0 text-xs text-mid">Reference image</p>
                 </div>
-                <div className="flex min-h-0 flex-1 flex-col items-center">
+                <div className="flex flex-col items-center cols:min-h-0 cols:flex-1">
                   <p className="mb-1 shrink-0 rounded-sm bg-header px-3 py-1 text-base font-bold text-white">Seller&rsquo;s Photo</p>
-                  <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                  <div className="flex w-full items-center justify-center cols:min-h-0 cols:flex-1">
                     <Placeholder
                       id={selected.id}
                       name={selected.name}
